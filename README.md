@@ -68,6 +68,15 @@ The Gossip Protocol implementation demonstrated in this project leverages heartb
 - Quorum consistency level for both reads and writes (at least two replicas).
 - Stabilization : after failure (recreate three replicas after failure).
 
+## Key Functions
+- ### `MP2Node::updateRing`
+  This function should set up/update the virtual ring after it gets the updated membership list from MP1Node via an upcall.
+- ### `MP2Node::clientCreate, MP2Node::clientRead, MP2Node::clientUpdate, MP2Node::clientDelete`
+  These function should implement the client-side CRUD interfaces.
+- ### `MP2Node::createKeyValue, MP2Node::readKey, MP2Node::updateKeyValue, MP2Node::deletekey`  
+  These functions should implement the server-side CRUD interfaces.
+- ### `MP2Node::stabilizationProtocol()`    
+  This function should implement the stabilization protocol that ensures that there are always three replicas of every key in the key value store. 
 
 ## Principle of Fault-Tolerant Key-Value Store
 ![image](https://github.com/xingyeahhh/Gossip_Protocol_Implementation_and_a_Fault_Tolerant_Key-Value_Store/assets/123461462/37974d05-e9c4-4ebd-87d2-d7ea918c67eb)

@@ -31,7 +31,9 @@
 enum MsgTypes{
     JOINREQ,
     JOINREP,
-    DUMMYLASTMSGTYPE
+    DUMMYLASTMSGTYPE,
+	//add new thing
+	PING
 };
 
 /**
@@ -41,6 +43,16 @@ enum MsgTypes{
  */
 typedef struct MessageHdr {
 	enum MsgTypes msgType;
+
+	//add new things;
+	vector<MemberListEntry> member_vector;
+	/**
+		节点的唯一标识符（如ID或IP地址）
+		节点的端口号
+		节点的心跳计数器值
+		节点的最后一次更新时间（时间戳）
+		**/
+	Address* addr;
 }MessageHdr;
 
 /**
@@ -76,6 +88,21 @@ public:
 	void initMemberListTable(Member *memberNode);
 	void printAddress(Address *addr);
 	virtual ~MP1Node();
+
+	//new add
+	void push_member_list(MessageHdr* msg);
+	void push_member_list(MemberListEntry* e);
+
+	MemberListEntry* check_member_list(int id, short port);
+	MemberListEntry* check_member_list(Address* node_addr);
+
+	void send_message(Address* toaddr, MsgTypes t);
+
+	void ping_handler(MessageHdr* msg);
+
+	void update_src_member(MessageHdr* msg);
+
+	Address* get_address(int id, short port);
 };
 
 #endif /* _MP1NODE_H_ */

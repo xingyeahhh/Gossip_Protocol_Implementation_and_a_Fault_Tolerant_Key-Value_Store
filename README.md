@@ -57,3 +57,34 @@ The mechanism of spreading membership information through gossip ensures that th
 The Gossip Protocol implementation demonstrated in this project leverages heartbeat and gossip mechanisms to efficiently manage membership in a distributed system. It ensures robustness against failures and scalability, making it an ideal choice for large-scale distributed systems.
 
 ![image](https://github.com/xingyeahhh/Gossip-Protocol/assets/123461462/95a69e54-58b2-4c60-badc-04ef81d25b9b)
+
+
+#  A Fault-Tolerant Key-Value Store in Distributed Systems
+
+## Core Functionalities
+- CRUD operations : A key-value store supporting CRUD operations (Create, Read, Update, Delete).
+- Load-balancing : via a consistent hashing ring to hash both servers and keys.
+- Fault-tolerance up to two failures : by replicating each key three times to three successive nodes in the ring, starting from the first node at or to the clockwise of the hashed key.
+- Quorum consistency level for both reads and writes (at least two replicas).
+- Stabilization : after failure (recreate three replicas after failure).
+
+
+## Principle of Fault-Tolerant Key-Value Store
+![image](https://github.com/xingyeahhh/Gossip_Protocol_Implementation_and_a_Fault_Tolerant_Key-Value_Store/assets/123461462/37974d05-e9c4-4ebd-87d2-d7ea918c67eb)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

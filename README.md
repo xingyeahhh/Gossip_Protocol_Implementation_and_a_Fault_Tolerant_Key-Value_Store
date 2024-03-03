@@ -62,6 +62,8 @@ The Gossip Protocol implementation demonstrated in this project leverages heartb
 #  A Fault-Tolerant Key-Value Store in Distributed Systems
 
 ## Core Functionalities
+- The hash table is used to store and manage local data on each node.
+- The hash ring is used to determine the distribution of data among different nodes, enabling load balancing and data replication.
 - CRUD operations : A key-value store supporting CRUD operations (Create, Read, Update, Delete).
 - Load-balancing : via a consistent hashing ring to hash both servers and keys.
 - Fault-tolerance up to two failures : by replicating each key three times to three successive nodes in the ring, starting from the first node at or to the clockwise of the hashed key.

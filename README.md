@@ -80,6 +80,9 @@ The Gossip Protocol implementation demonstrated in this project leverages heartb
 - ### `MP2Node::stabilizationProtocol()`    
   This function should implement the stabilization protocol that ensures that there are always three replicas of every key in the key value store. 
 
+## Conclusion
+Each node in the system contains both a Membership Protocol (MP1Node) and a KV Store (MP2Node). The MP1Node manages node membership and fault detection by periodically using the Gossip protocol to exchange state information with other nodes, ensuring the system maintains an updated view of the cluster. The MP2Node is responsible for key-value storage, which is achieved through data sharding and replication to ensure high availability and fault tolerance. Data operations (put, get, delete) in MP2Node utilize consistent hashing to determine the appropriate nodes for storage and ensure data is replicated based on the defined replication factor. The MP1Node continuously provides the latest cluster state information to the MP2Node, ensuring data operations are directed to the correct nodes. This integration of MP1Node and MP2Node within each node ensures a robust, scalable, and fault-tolerant distributed key-value store.
+
 ## Principle of Fault-Tolerant Key-Value Store
 ![image](https://github.com/xingyeahhh/Gossip_Protocol_Implementation_and_a_Fault_Tolerant_Key-Value_Store/assets/123461462/37974d05-e9c4-4ebd-87d2-d7ea918c67eb)
 

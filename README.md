@@ -168,6 +168,302 @@ Key Strengths
 - ### `MP2Node::stabilizationProtocol()`    
   This function should implement the stabilization protocol that ensures that there are always three replicas of every key in the key value store. 
 
+```
+I. Basic Architecture
+Ring Topology: All nodes form a hash ring, with each node responsible for a segment of the ring.
+Data Distribution: Uses consistent hashing to determine data placement.
+Triple Replication: Each data entry is stored in 3 replicas across the ring.
+
+-------updateRing()
+vector<Node> curMemList = getMembershipList();  // 从MP1获取成员列表
+sort(curMemList.begin(), curMemList.end());    // 按哈希值排序
+ring = curMemList;  // 形成环形结构
+
+------------hashFunction()
+size_t MP2Node::hashFunction(string key) {
+    std::hash<string> hashFunc;
+    return hashFunc(key) % RING_SIZE;  // RING_SIZE通常设为512
+}
+
+------------findNodes()实现数据定位：
+vector<Node> MP2Node::findNodes(string key) {
+    size_t pos = hashFunction(key);
+    vector<Node> addr_vec;
+    // 特殊情况处理：哈希值在环的起点之前
+    if (pos <= ring.at(0).getHashCode() || pos > ring.at(ring.size()-1).getHashCode()) {
+       ...
+    }
+    else {
+        // 常规情况：找到第一个哈希值大于key哈希的节点
+      ...
+        }
+    }
+    return addr_vec;
+}
+
+II. Key Workflows
+!!Client Operations (API)
+
+Create Data:
+Compute the hash of the key to locate its position on the ring.
+Identify the 3 nodes responsible for the key.
+Send CREATE requests to all 3 nodes.
+
+Read Data:
+Locate the 3 replica nodes.
+Send READ requests.
+Use Quorum (2/3 nodes must agree) for consistency.
+
+Update/Delete:
+Similar flow, requiring majority confirmation.
+
+-------clientCreate()函数
+void MP2Node::clientCreate(string key, string value) {
+    vector<Node> replicas = findNodes(key);
+    for (int i=0; i<replicas.size(); i++) {
+        Message msg = constructMsg(MessageType::CREATE, key, value);
+        emulNet->ENsend(&memberNode->addr, replicas[i].getAddress(), msg.toString());
+    }
+    g_transID++;  // 全局事务ID递增
+}
+
+--------消息构造constructMsg()：
+Message MP2Node::constructMsg(MessageType mType, string key, string value) {
+    int trans_id = g_transID;
+    createTransaction(trans_id, mType, key, value);  // 创建事务记录
+    return Message(trans_id, this->memberNode->addr, mType, key, value);
+}
+
+-----clientRead()实现：
+void MP2Node::clientRead(string key){
+    vector<Node> replicas = findNodes(key);
+    for (int i=0; i<replicas.size(); i++) {
+        Message msg = constructMsg(MessageType::READ, key);
+        emulNet->ENsend(&memberNode->addr, replicas[i].getAddress(), msg.toString());
+    }
+    g_transID++;
+}
+
+!!Server Processing
+Handles CREATE/READ/UPDATE/DELETE requests.
+Executes operations on the local hash table.
+Returns results to the client.
+
+--------checkMessages()核心逻辑
+while (!memberNode->mp2q.empty()) {
+    // 从队列取出消息
+    data = (char *)memberNode->mp2q.front().elt;
+    size = memberNode->mp2q.front().size;
+    memberNode->mp2q.pop();
+    
+    Message msg(string(data, data + size));
+    
+    // 根据消息类型处理
+    switch(msg.type) {
+        case CREATE: {
+            bool success = createKeyValue(msg.key, msg.value, msg.replica, msg.transID);
+            sendReply(msg.key, msg.type, success, &msg.fromAddr, msg.transID);
+            break;
+        }
+        // 其他操作类型处理...
+    }
+    checkTransMap();  // 检查事务状态
+}
+
+-----创建数据createKeyValue()
+bool MP2Node::createKeyValue(string key, string value, ReplicaType replica, int transID) {
+    bool success = this->ht->create(key, value);
+    if(success)
+        log->logCreateSuccess(&memberNode->addr, false, transID, key, value);
+    else 
+        log->logCreateFail(&memberNode->addr, false, transID, key, value);
+    return success;
+}
+
+---------读取数据readKey();
+string MP2Node::readKey(string key, int transID) {
+    string content = this->ht->read(key);
+    bool success = (content != "");
+    if (success) {
+        log->logReadSuccess(&memberNode->addr, false, transID, key, content);
+    } else {
+        log->logReadFail(&memberNode->addr, false, transID, key);
+    }
+    return content;
+}
+
+
+III. Core Mechanisms
+Consistency Guarantees:
+Writes require ≥2 successful acknowledgments.
+Reads require ≥2 matching responses.
+Ensures data remains consistent even if 1 node fails.
+
+Failure Recovery:
+Periodic ring checks (stabilizationProtocol).
+Re-replicates data when nodes join/leave.
+Operation timeout (10 time units).
+
+Transaction Management:
+Unique transaction IDs for each operation.
+Tracks responses and applies Quorum rules to determine final state.
+
+----事务结构体定义：
+struct transaction {
+    int id;             // 事务ID
+    int timestamp;      // 创建时间戳  
+    int replyCount;     // 已收到回复数
+    int successCount;   // 成功回复数
+    MessageType mType;  // 操作类型
+    string key;         // 操作键
+    string value;       // 操作值或读取结果
+};
+
+-------事务检查checkTransMap()：
+void MP2Node::checkTransMap(){
+    auto it = transMap.begin();
+    while (it != transMap.end()){
+        // 情况1：收到全部3个回复
+        if(it->second->replyCount == 3) {
+            bool success = (it->second->successCount >= 2);
+            logOperation(it->second, true, success, it->first);
+            delete it->second;
+            it = transMap.erase(it);
+            continue;
+        }
+        // 情况2：已获得2个成功(提前判定成功)
+        else if(it->second->successCount == 2) {
+            logOperation(it->second, true, true, it->first);
+            transComplete.emplace(it->first, true);
+            delete it->second;
+            it = transMap.erase(it);
+            continue;
+        }
+        // 情况3：已确认2个失败(提前判定失败) 
+        else if(it->second->replyCount - it->second->successCount == 2) {
+            logOperation(it->second, true, false, it->first);
+            transComplete.emplace(it->first, false);
+            delete it->second;
+            it = transMap.erase(it);
+            continue;
+        }
+        // 情况4：超时处理
+        else if(par->getcurrtime() - it->second->getTime() > 10) {
+            logOperation(it->second, true, false, it->first);
+            transComplete.emplace(it->first, false);
+            delete it->second;
+            it = transMap.erase(it);
+            continue;
+        }
+        it++;
+    }
+}
+
+--------stabilizationProtocol()实现：
+void MP2Node::stabilizationProtocol() {
+    for(auto it = this->ht->hashTable.begin(); it != this->ht->hashTable.end(); it++) {
+        vector<Node> replicas = findNodes(it->first);
+        for (int i = 0; i < replicas.size(); i++) {
+            Message createMsg(STABLE, this->memberNode->addr, MessageType::CREATE, 
+                            it->first, it->second);
+            emulNet->ENsend(&memberNode->addr, replicas[i].getAddress(), createMsg.toString());
+        }
+    }
+}
+
+IV. Example Scenarios
+Data Write:
+Client hashes the key and finds the next 3 nodes.
+Sends CREATE to all 3.
+Confirms success after 2 acknowledgments.
+
+Node Joining:
+Triggers stabilizationProtocol to rebalance data.
+Ensures 3 replicas for all keys.
+
+
+```
+![image](https://github.com/user-attachments/assets/2511fcd0-7118-46f7-bdd9-95ce7887af3b)
+
+```
+Roles and Responsibilities
+Role	   Responsibilities	               Typical Behaviors	                                                               Code Representation
+Client	   Initiates data operations	   Determines operation type (CREATE/READ/UPDATE/DELETE) and selects target nodes	   clientCreate(), clientRead() etc.
+Server	   Executes actual data storage	   Responds to operation requests and manipulates local hash table	                   createKeyValue(), readKey() etc.
+
+Key Interaction Workflows
+When a node initiates an operation (as Client):
+- Calls client APIs (e.g., clientCreate())
+- Locates 3 target nodes (including self) via findNodes()
+- Sends requests to all target nodes (even if itself is one)
+
+When a node receives a request (as Server):
+- Processes message queue via checkMessages()
+- Executes corresponding data operation (e.g., createKeyValue())
+- Returns operation result
+
+
+    participant Client
+    participant Replica1
+    participant Replica2
+    participant Replica3
+
+    Client->>Replica1: CREATE(key,value) [transID=100]
+    Client->>Replica2: CREATE(key,value) [transID=100]
+    Client->>Replica3: CREATE(key,value) [transID=100]
+    
+    Replica1->>Client: REPLY(success, transID=100)
+    Replica2->>Client: REPLY(success, transID=100)
+    Replica3->>Client: REPLY(fail, transID=100) 
+    
+    Note over Client: 收到2个success → 判定操作成功
+    Client->>Client: 记录日志: CREATE成功
+
+MP2Node的核心设计思想。在任意节点上都可以发起CRUD操作，无需关心该节点是否存储目标数据。这是分布式键值存储系统的关键特性之一，具体实现原理如下：
+(1) 无中心化设计
+所有节点完全对等（P2P架构），没有主从之分
+每个节点都具备完整的路由能力（通过findNodes()定位数据位置）
+
+(2) 数据定位透明化
+当您在节点A上发起操作时：
+关键点：操作的发起节点不依赖本地数据，而是通过哈希环计算数据应该存在哪里
+
+场景1：新增节点
+数据迁移：
+新节点加入后，某些key的findNodes()结果会包含该节点
+原有节点通过stabilizationProtocol()将数据迁移到新节点
+
+示例：
+原环：N1(100), N2(200), N3(300)
+加入N4(150)后：
+Key=120的副本从[N2,N3,N1]变为[N4,N2,N3]
+N1会将相关数据发送给N4
+
+场景2：节点退出
+数据补充：
+退出节点的数据会由其他副本节点通过findNodes()重新分配
+例如原副本节点A,B,C中B退出，新计算可能变为A,C,D
+故障检测：
+通过checkMessages()超时机制检测节点离线
+最终由存活节点触发数据补充
+
+关键设计细节
+增量同步：
+只迁移因节点变化导致归属变动的数据（通过findNodes()差异检测）
+避免重复存储：
+bool createKeyValue(key, value, replica, STABLE) {
+    if (ht->read(key).empty()) { // 只有不存在时才写入
+        return ht->create(key, value);
+    }
+    return false;
+}
+
+稳定标记：
+使用STABLE作为特殊transID，表示这是后台同步操作
+区别于客户端发起的常规操作
+
+
+```
 ## Conclusion
 Each node in the system contains both a Membership Protocol (MP1Node) and a KV Store (MP2Node). The MP1Node manages node membership and fault detection by periodically using the Gossip protocol to exchange state information with other nodes, ensuring the system maintains an updated view of the cluster. The MP2Node is responsible for key-value storage, which is achieved through data sharding and replication to ensure high availability and fault tolerance. Data operations (put, get, delete) in MP2Node utilize consistent hashing to determine the appropriate nodes for storage and ensure data is replicated based on the defined replication factor. The MP1Node continuously provides the latest cluster state information to the MP2Node, ensuring data operations are directed to the correct nodes. This integration of MP1Node and MP2Node within each node ensures a robust, scalable, and fault-tolerant distributed key-value store.
 

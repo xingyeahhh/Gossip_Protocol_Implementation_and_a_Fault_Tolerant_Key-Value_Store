@@ -52,12 +52,100 @@ Processes received messages, categorizing them based on their type (e.g., JOINRE
 ### Gossip-Based Membership List Propagation
 The mechanism of spreading membership information through gossip ensures that the system is scalable and can efficiently manage membership information even as the network size grows.
 
+
+
 ## Conclusion
 
 The Gossip Protocol implementation demonstrated in this project leverages heartbeat and gossip mechanisms to efficiently manage membership in a distributed system. It ensures robustness against failures and scalability, making it an ideal choice for large-scale distributed systems.
 
 ![image](https://github.com/xingyeahhh/Gossip-Protocol/assets/123461462/95a69e54-58b2-4c60-badc-04ef81d25b9b)
 
+
+```
+1. Node Initialization & Joining Process
+Initialization (initThisNode):
+- Sets initial state (not in group, not failed)
+- Initializes empty membership list
+
+Joining Protocol (introduceSelfToGroup):
+- First node becomes bootstrap node (marks itself in group)
+- Subsequent nodes send JOINREQ to introducer
+- JOINREQ contains sender's address and member list
+
+Join Response Handling (JOINREP in recvCallBack):
+- Merges received member list into local view
+- Marks joining complete
+
+2. Heartbeat Mechanism & Membership Maintenance
+Periodic Operations (nodeLoopOps):
+- Increments local heartbeat counter
+- Checks for timed-out nodes (TREMOVE threshold)
+- Broadcasts PING messages to all known members
+
+Heartbeat Processing (ping_handler):
+- Updates sender's heartbeat info
+- Compares and merges remote member lists
+- Adds newly discovered nodes
+
+3. Failure Detection Approach
+Timeout-Based:
+- Tracks last update timestamp for each member
+- Removes nodes exceeding TREMOVE threshold
+
+Heartbeat-Based:
+- Nodes periodically prove liveness via heartbeats
+- Receivers only keep higher heartbeat values
+
+4. Message Types
+JOINREQ: Join group request
+JOINREP: Join acknowledgment
+PING: Periodic heartbeat containing member list
+
+5. State Synchronization Method
+Gossip-Style Propagation:
+- Each PING carries complete membership info
+- Receivers merge information through comparison
+
+Eventual Consistency:
+- Doesn't require immediate consistency
+- Achieves convergence through periodic exchanges
+
+
+6.Heart Beat:
+Local Increment (in nodeLoopOps):  memberNode->heartbeat++;
+- Each node maintains its own heartbeat counter
+- Automatically increments periodically during each cycle
+- Represents "I'm still alive" declaration
+
+Remote Increment (in update_src_member):  src_member->heartbeat++;
+- When Node A receives a PING from Node B
+- Node A increments Node B's heartbeat counter
+
+For Self Node:
+Only maintains and increments its own heartbeat
+Includes this value in outgoing PING messages
+
+For Other Nodes:
+When receiving a PING, increments the sender's heartbeat
+Represents "I've received your latest status"
+
+Practical Example Flow
+Consider Node A and Node B:
+
+Node A:
+Locally increments heartbeat from 5→6 (nodeLoopOps)
+Sends PING containing heartbeat=6
+
+Node B receives PING:
+Sees Node A's heartbeat is 6
+Executes src_member->heartbeat++ (6→7)
+This isn't duplicate - it means "I acknowledge your heartbeat 6, now recorded as 7"
+
+Key Strengths
+- Simplicity: Straightforward heartbeat/timeout detection
+- Self-Contained: Full state in messages enables quick joining
+- Decentralized: No single point of failure
+```
 
 #  A Fault-Tolerant Key-Value Store in Distributed Systems
 
